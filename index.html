@@ -27,11 +27,12 @@ nav button.on{color:var(--ac)}
 .mu{color:var(--mu);font-size:13px}
 .row{display:flex;justify-content:space-between;align-items:center;gap:10px}
 .grid2{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+.grid2 .card{margin-bottom:0}
 .item{display:flex;justify-content:space-between;align-items:center;gap:10px;padding:11px 0;border-bottom:1px solid var(--line)}
 .item:last-child{border-bottom:0}
 .item .n{font-weight:600}
 .amt{font-weight:600;white-space:nowrap;font-variant-numeric:tabular-nums}
-.pos{color:var(--ok)}.neg{color:var(--bad)}
+.pos{color:var(--ok)}.neg{color:var(--bad)}.neu{color:var(--mu)}
 h2{font-size:16px;margin:18px 0 8px}
 h2:first-child{margin-top:0}
 .btn{background:var(--ac);color:#04121f;border:0;border-radius:10px;padding:10px 14px;font-weight:700;font-size:15px}
@@ -54,6 +55,8 @@ textarea{min-height:120px}
 .seg button{flex:1;border:0;background:none;color:var(--mu);padding:8px;border-radius:8px;font-weight:600}
 .seg button.on{background:var(--ac);color:#04121f}
 .toast{position:fixed;left:50%;transform:translateX(-50%);bottom:calc(84px + env(safe-area-inset-bottom));background:var(--card2);border:1px solid var(--line);padding:10px 16px;border-radius:10px;z-index:30}
+.filters{display:grid;grid-template-columns:1fr 1fr auto;gap:8px;margin-bottom:12px}
+.filters input,.filters select{padding:9px;font-size:15px}
 </style>
 </head>
 <body>
@@ -65,8 +68,8 @@ textarea{min-height:120px}
 'use strict';
 const KEY='finanzas_joel_v3';
 const TABS=[['inicio','🏠','Inicio'],['tarjetas','💳','Tarjetas'],['servicios','🧾','Servicios'],['prestamos','🏦','Préstamos'],['movs','↕️','Movim.'],['presupuesto','🎯','Presup.'],['datos','💾','Datos']];
-const CAT_GASTO=['Comida','Transporte','Servicios','Préstamos','Ocio','Salud','Hogar','Educación','Ropa','Negocio','Otros'];
-const CAT_INGRESO=['Salario','Negocio','Uber','Internet clientes','Otros ingresos'];
+const CAT_GASTO=['Supermercado','Comida','Combustible','Transporte','Servicios','Préstamos','Ocio','Salud','Hogar','Educación','Ropa','Negocio','Intereses y cargos','Comisiones e impuestos','Transferencias','Retiros de efectivo','Otros'];
+const CAT_INGRESO=['Salario','Remesas','Negocio','Uber','Internet clientes','Transferencias recibidas','Cashback','Otros ingresos'];
 
 /* ---------- utilidades ---------- */
 const $=s=>document.querySelector(s);
@@ -84,37 +87,55 @@ function avanzar(fIso,dia,freq,sign=1){const f=parse(fIso);const n=freq==='anual
 const dias=fIso=>Math.round((parse(fIso)-hoy())/864e5);
 function semaforo(fIso){const d=dias(fIso);if(d<0)return['🔴',`Vencido hace ${-d} d`];if(d===0)return['🔴','Vence hoy'];if(d===1)return['🟠','Mañana'];if(d<=7)return['🟡',`En ${d} días`];return['🟢',`En ${d} días`]}
 const fechaCorta=fIso=>parse(fIso).toLocaleDateString('es-DO',{day:'numeric',month:'short'});
-function toast(t){const e=document.createElement('div');e.className='toast';e.textContent=t;document.body.appendChild(e);setTimeout(()=>e.remove(),1800)}
+const nombreMes=m=>parse(m+'-01').toLocaleDateString('es-DO',{month:'long',year:'numeric'});
+function toast(t){const e=document.createElement('div');e.className='toast';e.textContent=t;document.body.appendChild(e);setTimeout(()=>e.remove(),2200)}
 
 /* ---------- estado ---------- */
 function estadoInicial(){
   const s=(nombre,monto,dia)=>({id:uid(),nombre,monto,dia,frecuencia:'mensual',categoria:'Servicios',proximo:iso(primerVenc(dia)),pagos:[]});
   const p=(nombre,cuota,dia,cuotasRestantes)=>({id:uid(),nombre,cuota,dia,cuotasRestantes,saldo:0,proximo:iso(primerVenc(dia)),pagos:[]});
   const pres={};CAT_GASTO.forEach(c=>pres[c]=0);
-  return{version:3,cuentas:{efectivo:0,debito:0},tarjetas:[],
+  return{version:4,cuentas:{efectivo:0,debito:0},
+    cuentasInfo:[{id:'efectivo',nombre:'Efectivo',tipo:'efectivo'},{id:'debito',nombre:'Tarjeta débito',tipo:'debito'}],
+    tarjetas:[],
     servicios:[s('Agua KM 14',500,1),s('Luz KM 22',2000,9),s('Internet KM 14',1960,10),s('Internet Celular',1080,15),s('Claude IA',1231,18),s('Luz KM 14',2000,19),s('Internet KM 22',2750,20)],
     prestamos:[p('QIK',16200,20,44),p('Cooperativa La Sureña',9980,29,32)],
     movs:[],presupuesto:pres};
 }
+function migrar(){
+  if(!S.cuentasInfo){S.cuentasInfo=Object.keys(S.cuentas).map(k=>({id:k,nombre:k==='efectivo'?'Efectivo':k==='debito'?'Tarjeta débito':k,tipo:k==='efectivo'?'efectivo':'debito'}))}
+  S.cuentasInfo.forEach(c=>{if(typeof S.cuentas[c.id]!=='number')S.cuentas[c.id]=0});
+  ['tarjetas','servicios','prestamos','movs'].forEach(k=>S[k]=S[k]||[]);
+  S.presupuesto=S.presupuesto||{};S.version=4;
+}
 let S;
 try{S=JSON.parse(localStorage.getItem(KEY))}catch(e){S=null}
 if(!S||!S.cuentas)S=estadoInicial();
+migrar();
 function save(){try{localStorage.setItem(KEY,JSON.stringify(S))}catch(e){toast('⚠️ No se pudo guardar')}}
 save();
-let tab='inicio', mesFiltro=mesActual();
+let tab='inicio', mesFiltro=mesActual(), cuentaFiltro='todas';
+
+/* ---------- cuentas ---------- */
+const esCuenta=id=>Object.prototype.hasOwnProperty.call(S.cuentas,id);
+const infoCuenta=id=>S.cuentasInfo.find(c=>c.id===id);
+const iconoCuenta=c=>c.tipo==='efectivo'?'💵':'🏧';
+function nombreCuenta(id){const c=infoCuenta(id);if(c)return c.nombre;const t=S.tarjetas.find(t=>t.id===id);return t?t.nombre:'—'}
+const cuentasDinero=()=>S.cuentasInfo.map(c=>[c.id,`${iconoCuenta(c)} ${c.nombre}`]);
+const opcionesCuenta=()=>[...cuentasDinero(),...S.tarjetas.map(t=>[t.id,'💳 '+t.nombre])];
+const cuentaDefault=()=>(S.cuentasInfo.find(c=>c.tipo==='debito')||S.cuentasInfo[0]).id;
 
 /* ---------- movimientos y saldos ---------- */
+function mover(id,delta){if(esCuenta(id))S.cuentas[id]+=delta;else{const t=S.tarjetas.find(x=>x.id===id);if(t)t.saldo-=delta}}
 function aplicar(m,sign){
+  if(m.hist)return; // importado de estado de cuenta: el saldo ya viene del banco
   const v=sign*Number(m.monto);
-  if(m.tipo==='pagoTarjeta'){S.cuentas[m.cuenta]-=v;const t=S.tarjetas.find(x=>x.id===m.tarjeta);if(t)t.saldo-=v;return}
-  const signo=m.tipo==='ingreso'?1:-1;
-  if(m.cuenta==='efectivo'||m.cuenta==='debito')S.cuentas[m.cuenta]+=signo*v;
-  else{const t=S.tarjetas.find(x=>x.id===m.cuenta);if(t)t.saldo-=signo*v}
+  if(m.tipo==='pagoTarjeta'){mover(m.cuenta,-v);mover(m.tarjeta,v);const t=S.tarjetas.find(x=>x.id===m.tarjeta);if(t&&t.pagoCorte)t.pagoCorte=Math.max(0,t.pagoCorte-v);return}
+  if(m.tipo==='transferencia'){mover(m.cuenta,-v);if(m.destino)mover(m.destino,v);return}
+  mover(m.cuenta,(m.tipo==='ingreso'?1:-1)*v);
 }
 function agregarMov(m){m.id=m.id||uid();S.movs.unshift(m);aplicar(m,1);return m.id}
 function borrarMov(id){const i=S.movs.findIndex(m=>m.id===id);if(i<0)return;aplicar(S.movs[i],-1);S.movs.splice(i,1)}
-const nombreCuenta=c=>c==='efectivo'?'Efectivo':c==='debito'?'Débito':(S.tarjetas.find(t=>t.id===c)?.nombre||'Tarjeta');
-const opcionesCuenta=()=>[['debito','Tarjeta débito'],['efectivo','Efectivo'],...S.tarjetas.map(t=>[t.id,'💳 '+t.nombre])];
 
 /* ---------- formularios (hoja inferior) ---------- */
 function form(titulo,campos,onOk,extra=''){
@@ -139,7 +160,7 @@ function pagar(tipo,id){
   const monto=tipo==='servicio'?it.monto:it.cuota;
   form(`Pagar ${it.nombre}`,[
     {name:'monto',label:'Monto',type:'number',value:monto},
-    {name:'cuenta',label:'Pagado desde',type:'select',options:opcionesCuenta(),value:'debito'},
+    {name:'cuenta',label:'Pagado desde',type:'select',options:opcionesCuenta(),value:cuentaDefault()},
     {name:'fecha',label:'Fecha de pago',type:'date',value:iso(hoy())}],d=>{
       const movId=agregarMov({tipo:'gasto',monto:d.monto,cuenta:d.cuenta,fecha:d.fecha,categoria:tipo==='servicio'?(it.categoria||'Servicios'):'Préstamos',nota:it.nombre});
       it.pagos.push({periodo:it.proximo,movId});
@@ -185,36 +206,56 @@ function eliminar(coleccion,id){if(!confirm('¿Eliminar? No se puede deshacer.')
 function fechaFin(p){if(!p.cuotasRestantes)return'Pagado';const f=parse(p.proximo);return fechaConDia(f.getFullYear(),f.getMonth()+p.cuotasRestantes-1,p.dia).toLocaleDateString('es-DO',{month:'short',year:'numeric'})}
 
 /* ---------- tarjetas ---------- */
+function fechaPagoTarjeta(t){if(t.fechaLimite&&dias(t.fechaLimite)>=-3)return t.fechaLimite;return iso(primerVenc(t.diaPago||20))}
+const montoPagoTarjeta=t=>t.pagoCorte>0?t.pagoCorte:(t.saldo||0);
 function editarTarjeta(id){
   const t=id?S.tarjetas.find(x=>x.id===id):null;
   form(t?'Editar tarjeta':'Nueva tarjeta de crédito',[
     {name:'nombre',label:'Nombre (ej. Popular Visa)',value:t?.nombre,req:1},
+    {name:'ult4',label:'Últimos 4 dígitos',value:t?.ult4||''},
     {name:'limite',label:'Límite de crédito',type:'number',value:t?.limite},
-    {name:'saldo',label:'Saldo usado (deuda actual)',type:'number',value:t?.saldo||0},
+    {name:'saldo',label:'Balance actual (deuda)',type:'number',value:t?.saldo||0},
+    {name:'pagoCorte',label:'Balance al corte (a pagar este mes)',type:'number',value:t?.pagoCorte||0},
     {name:'diaCorte',label:'Día de corte',type:'number',value:t?.diaCorte||1},
-    {name:'diaPago',label:'Día límite de pago',type:'number',value:t?.diaPago||20}],d=>{
+    {name:'diaPago',label:'Día límite de pago',type:'number',value:t?.diaPago||20},
+    {name:'fechaLimite',label:'Próxima fecha límite de pago',type:'date',value:t?.fechaLimite||''}],d=>{
+      if(!d.fechaLimite)delete d.fechaLimite;
       if(t)Object.assign(t,d);else S.tarjetas.push({id:uid(),...d});
     });
 }
 function pagarTarjeta(id){
   const t=S.tarjetas.find(x=>x.id===id);
   form(`Pagar ${t.nombre}`,[
-    {name:'monto',label:'Monto a pagar',type:'number',value:t.saldo},
-    {name:'cuenta',label:'Desde',type:'select',options:[['debito','Tarjeta débito'],['efectivo','Efectivo']],value:'debito'},
+    {name:'monto',label:'Monto a pagar',type:'number',value:montoPagoTarjeta(t)},
+    {name:'cuenta',label:'Desde',type:'select',options:cuentasDinero(),value:cuentaDefault()},
     {name:'fecha',label:'Fecha',type:'date',value:iso(hoy())}],d=>{
-      agregarMov({tipo:'pagoTarjeta',tarjeta:t.id,monto:d.monto,cuenta:d.cuenta,fecha:d.fecha,categoria:'Pago tarjeta',nota:'Pago '+t.nombre});toast('✅ Pago aplicado');
+      agregarMov({tipo:'pagoTarjeta',tarjeta:t.id,monto:d.monto,cuenta:d.cuenta,fecha:d.fecha,categoria:'Pago de tarjeta',nota:'Pago '+t.nombre});
+      if(!(t.pagoCorte>0)&&t.fechaLimite)t.fechaLimite=avanzar(t.fechaLimite,t.diaPago||parse(t.fechaLimite).getDate(),'mensual');
+      toast('✅ Pago aplicado');
     });
 }
 
 /* ---------- movimientos ---------- */
 let tipoNuevo='gasto';
 function nuevoMov(tipo){
-  tipoNuevo=tipo||tipoNuevo;const cats=tipoNuevo==='gasto'?CAT_GASTO:CAT_INGRESO;
-  const seg=`<div class="seg" style="margin-top:4px"><button type="button" class="${tipoNuevo==='gasto'?'on':''}" onclick="nuevoMov('gasto')">Gasto</button><button type="button" class="${tipoNuevo==='ingreso'?'on':''}" onclick="nuevoMov('ingreso')">Ingreso</button></div>`;
+  tipoNuevo=tipo||tipoNuevo;
+  const seg=`<div class="seg" style="margin-top:4px">${[['gasto','Gasto'],['ingreso','Ingreso'],['transferencia','Transferir']].map(([k,l])=>`<button type="button" class="${tipoNuevo===k?'on':''}" onclick="nuevoMov('${k}')">${l}</button>`).join('')}</div>`;
+  if(tipoNuevo==='transferencia'){
+    form('Transferir entre mis cuentas',[
+      {name:'monto',label:'Monto',type:'number',req:1},
+      {name:'cuenta',label:'Desde',type:'select',options:cuentasDinero(),value:cuentaDefault()},
+      {name:'destino',label:'Hacia',type:'select',options:cuentasDinero(),value:'efectivo'},
+      {name:'fecha',label:'Fecha',type:'date',value:iso(hoy())},
+      {name:'nota',label:'Nota (opcional)'}],d=>{
+        if(d.monto<=0||d.cuenta===d.destino){toast('Revisa monto y cuentas');return false}
+        agregarMov({tipo:'transferencia',categoria:'Entre mis cuentas',...d});toast('✅ Transferencia guardada');
+      },seg);return;
+  }
+  const cats=tipoNuevo==='gasto'?CAT_GASTO:CAT_INGRESO;
   form(tipoNuevo==='gasto'?'Nuevo gasto':'Nuevo ingreso',[
     {name:'monto',label:'Monto',type:'number',req:1},
     {name:'categoria',label:'Categoría',type:'select',options:cats.map(c=>[c,c]),value:cats[0]},
-    {name:'cuenta',label:tipoNuevo==='gasto'?'Pagado con':'Depositado en',type:'select',options:tipoNuevo==='gasto'?opcionesCuenta():[['debito','Tarjeta débito'],['efectivo','Efectivo']],value:'debito'},
+    {name:'cuenta',label:tipoNuevo==='gasto'?'Pagado con':'Depositado en',type:'select',options:tipoNuevo==='gasto'?opcionesCuenta():cuentasDinero(),value:cuentaDefault()},
     {name:'fecha',label:'Fecha',type:'date',value:iso(hoy())},
     {name:'nota',label:'Nota (opcional)'}],d=>{
       if(d.monto<=0){toast('Monto inválido');return false}
@@ -222,20 +263,29 @@ function nuevoMov(tipo){
     },seg);
 }
 function ajustarCuenta(c){
-  form('Ajustar '+(c==='efectivo'?'efectivo':'tarjeta débito'),[{name:'v',label:'Saldo real actual',type:'number',value:S.cuentas[c]}],d=>{S.cuentas[c]=d.v});
+  const info=infoCuenta(c);
+  form('Ajustar '+info.nombre,[{name:'nombre',label:'Nombre',value:info.nombre},{name:'v',label:'Saldo real actual',type:'number',value:S.cuentas[c]}],d=>{S.cuentas[c]=d.v;info.nombre=d.nombre||info.nombre;info.fechaSaldo=iso(hoy())});
 }
-function delMov(id){if(!confirm('¿Eliminar movimiento? Se revierte su efecto en el saldo.'))return;borrarMov(id);save();render()}
+function nuevaCuenta(){
+  form('Nueva cuenta',[{name:'nombre',label:'Nombre (ej. Banreservas)',req:1},{name:'tipo',label:'Tipo',type:'select',options:[['debito','Cuenta / tarjeta débito'],['efectivo','Efectivo']],value:'debito'},{name:'v',label:'Saldo actual',type:'number',value:0}],d=>{
+    const id='c_'+uid();S.cuentasInfo.push({id,nombre:d.nombre,tipo:d.tipo,fechaSaldo:iso(hoy())});S.cuentas[id]=d.v;
+  });
+}
+function delMov(id){if(!confirm('¿Eliminar movimiento?'))return;borrarMov(id);save();render()}
 
 /* ---------- cálculos ---------- */
 function proximosPagos(diasMax=31){
   const out=[];
   S.servicios.forEach(s=>out.push({tipo:'servicio',id:s.id,nombre:s.nombre,monto:s.monto,fecha:s.proximo}));
   S.prestamos.filter(p=>p.cuotasRestantes>0).forEach(p=>out.push({tipo:'prestamo',id:p.id,nombre:p.nombre,monto:p.cuota,fecha:p.proximo}));
-  S.tarjetas.filter(t=>t.saldo>0).forEach(t=>out.push({tipo:'tarjeta',id:t.id,nombre:'💳 '+t.nombre,monto:t.saldo,fecha:iso(primerVenc(t.diaPago))}));
+  S.tarjetas.filter(t=>montoPagoTarjeta(t)>0).forEach(t=>out.push({tipo:'tarjeta',id:t.id,nombre:'💳 '+t.nombre,monto:montoPagoTarjeta(t),fecha:fechaPagoTarjeta(t)}));
   return out.filter(x=>dias(x.fecha)<=diasMax).sort((a,b)=>a.fecha.localeCompare(b.fecha));
 }
-function gastosMes(mes){const r={};S.movs.filter(m=>m.tipo==='gasto'&&m.fecha.startsWith(mes)).forEach(m=>r[m.categoria]=(r[m.categoria]||0)+m.monto);return r}
+const cuentaOk=m=>cuentaFiltro==='todas'||m.cuenta===cuentaFiltro||m.tarjeta===cuentaFiltro||m.destino===cuentaFiltro;
+function gastosMes(mes,filtrar){const r={};S.movs.filter(m=>m.tipo==='gasto'&&m.fecha.startsWith(mes)&&(!filtrar||cuentaOk(m))).forEach(m=>r[m.categoria]=(r[m.categoria]||0)+Number(m.monto));return r}
+const sumaIngresos=(mes,filtrar)=>S.movs.filter(m=>m.tipo==='ingreso'&&m.fecha.startsWith(mes)&&(!filtrar||cuentaOk(m))).reduce((a,m)=>a+Number(m.monto),0);
 const deudaTarjetas=()=>S.tarjetas.reduce((a,t)=>a+(t.saldo||0),0);
+const sum=o=>Object.values(o).reduce((a,b)=>a+b,0);
 
 /* ---------- vistas ---------- */
 function filaPago(x){
@@ -245,18 +295,17 @@ function filaPago(x){
 }
 const V={};
 V.inicio=()=>{
-  const disp=S.cuentas.efectivo+S.cuentas.debito, deuda=deudaTarjetas();
+  const disp=sum(S.cuentas), deuda=deudaTarjetas();
   const prox=proximosPagos(30), totProx=prox.reduce((a,x)=>a+x.monto,0);
-  const mes=mesActual(), g=gastosMes(mes), gTot=Object.values(g).reduce((a,b)=>a+b,0);
-  const ing=S.movs.filter(m=>m.tipo==='ingreso'&&m.fecha.startsWith(mes)).reduce((a,m)=>a+m.monto,0);
-  const presTot=Object.values(S.presupuesto).reduce((a,b)=>a+b,0);
+  const mes=mesActual(), gTot=sum(gastosMes(mes)), ing=sumaIngresos(mes);
+  const presTot=sum(S.presupuesto);
   const alcanza=disp-totProx;
-  return`<div class="card"><div class="mu">Balance total</div><div class="big">${fmt(disp)}</div>
+  return`<div class="card"><div class="mu">Balance en cuentas</div><div class="big">${fmt(disp)}</div>
    ${deuda?`<div class="mu" style="margin-top:4px">Deuda tarjetas: <span class="neg">${fmt(deuda)}</span> · Neto: ${fmt(disp-deuda)}</div>`:''}
    <div class="mu" style="margin-top:6px">Después de pagos de 30 días: <b class="${alcanza<0?'neg':'pos'}">${fmt(alcanza)}</b></div></div>
-  <div class="grid2"><div class="card" onclick="ajustarCuenta('efectivo')"><div class="mu">💵 Efectivo</div><div class="amt" style="font-size:19px">${fmt(S.cuentas.efectivo)}</div><div class="mu" style="font-size:11px">Toca para ajustar</div></div>
-   <div class="card" onclick="ajustarCuenta('debito')"><div class="mu">🏧 Débito</div><div class="amt" style="font-size:19px">${fmt(S.cuentas.debito)}</div><div class="mu" style="font-size:11px">Toca para ajustar</div></div></div>
-  <div class="acts" style="margin:0 0 12px"><button class="btn" style="flex:1" onclick="nuevoMov('gasto')">− Gasto</button><button class="btn sec" style="flex:1" onclick="nuevoMov('ingreso')">+ Ingreso</button></div>
+  <div class="grid2" style="margin-bottom:12px">${S.cuentasInfo.map(c=>`<div class="card" onclick="ajustarCuenta('${c.id}')"><div class="mu">${iconoCuenta(c)} ${esc(c.nombre)}</div><div class="amt" style="font-size:19px">${fmt(S.cuentas[c.id])}</div><div class="mu" style="font-size:11px">${c.fechaSaldo?'Al '+fechaCorta(c.fechaSaldo)+' · ':''}Toca para ajustar</div></div>`).join('')}
+   <div class="card" onclick="nuevaCuenta()" style="display:flex;align-items:center;justify-content:center;color:var(--mu)">+ Cuenta</div></div>
+  <div class="acts" style="margin:0 0 12px"><button class="btn" style="flex:1" onclick="nuevoMov('gasto')">− Gasto</button><button class="btn sec" style="flex:1" onclick="nuevoMov('ingreso')">+ Ingreso</button><button class="btn sec" onclick="nuevoMov('transferencia')">⇄</button></div>
   <div class="card"><div class="row"><h2 style="margin:0">Pagos próximos (30 días)</h2><span class="amt">${fmt(totProx)}</span></div>
    ${prox.length?prox.map(filaPago).join(''):'<div class="empty">Nada pendiente 🎉</div>'}</div>
   <div class="card"><h2>Este mes</h2><div class="row"><span class="mu">Ingresos</span><span class="amt pos">${fmt(ing)}</span></div>
@@ -264,12 +313,14 @@ V.inicio=()=>{
    ${presTot?`<div class="row" style="margin-top:6px"><span class="mu">Presupuesto usado</span><span class="amt">${Math.round(gTot/presTot*100)}%</span></div><div class="bar"><i style="width:${Math.min(100,gTot/presTot*100)}%;background:${gTot>presTot?'var(--bad)':gTot>presTot*.8?'var(--warn)':'var(--ok)'}"></i></div>`:''}</div>`;
 };
 V.tarjetas=()=>`<button class="btn full" style="margin:0 0 12px" onclick="editarTarjeta()">+ Agregar tarjeta de crédito</button>`+
-  (S.tarjetas.length?S.tarjetas.map(t=>{const uso=t.limite?t.saldo/t.limite*100:0;const[ic,tx]=semaforo(iso(primerVenc(t.diaPago)));
-   return`<div class="card"><div class="row"><b>💳 ${esc(t.nombre)}</b><span class="amt neg">${fmt(t.saldo)}</span></div>
-   <div class="mu">Disponible ${fmt((t.limite||0)-(t.saldo||0))} de ${fmt(t.limite)} · Corte día ${t.diaCorte} · Pago día ${t.diaPago}</div>
+  (S.tarjetas.length?S.tarjetas.map(t=>{const uso=t.limite?t.saldo/t.limite*100:0;const fp=fechaPagoTarjeta(t);const[ic,tx]=semaforo(fp);
+   return`<div class="card"><div class="row"><b>💳 ${esc(t.nombre)}${t.ult4?` <span class="mu">*${esc(t.ult4)}</span>`:''}</b><span class="amt neg">${fmt(t.saldo)}</span></div>
+   <div class="mu">Disponible ${fmt((t.limite||0)-(t.saldo||0))} de ${fmt(t.limite)}${t.fechaSaldo?' · al '+fechaCorta(t.fechaSaldo):''}</div>
    <div class="bar"><i style="width:${Math.min(100,uso)}%;background:${uso>70?'var(--bad)':uso>30?'var(--warn)':'var(--ok)'}"></i></div>
-   <div class="mu" style="margin-top:6px">${ic} Próximo pago: ${tx} · Uso ${Math.round(uso)}%${uso>30?' (ideal &lt;30%)':''}</div>
-   <div class="acts"><button class="btn sm" onclick="pagarTarjeta('${t.id}')">Pagar</button><button class="btn sm sec" onclick="editarTarjeta('${t.id}')">Editar</button><button class="btn sm sec" onclick="eliminar('tarjetas','${t.id}')">Eliminar</button></div></div>`}).join(''):'<div class="card empty">Aún no tienes tarjetas registradas.<br>Los gastos con tarjeta de crédito suman a su deuda.</div>');
+   <div class="mu" style="margin-top:6px">Uso ${Math.round(uso)}%${uso>30?' (ideal &lt;30%)':''} · Corte día ${t.diaCorte} · Pago día ${t.diaPago}${t.tasa?` · Tasa ${t.tasa}% anual`:''}</div>
+   <div class="row" style="margin-top:8px"><span>${ic} Pagar ${t.pagoCorte>0?'balance al corte':'balance'} antes del <b>${fechaCorta(fp)}</b><div class="mu">${tx}</div></span><span class="amt">${fmt(montoPagoTarjeta(t))}</span></div>
+   ${t.nota?`<div class="mu" style="margin-top:6px">ℹ️ ${esc(t.nota)}</div>`:''}
+   <div class="acts"><button class="btn sm" onclick="pagarTarjeta('${t.id}')">Pagar</button><button class="btn sm sec" onclick="cuentaFiltro='${t.id}';ir('movs')">Movimientos</button><button class="btn sm sec" onclick="editarTarjeta('${t.id}')">Editar</button><button class="btn sm sec" onclick="eliminar('tarjetas','${t.id}')">Eliminar</button></div></div>`}).join(''):'<div class="card empty">Aún no tienes tarjetas registradas.<br>Los gastos con tarjeta de crédito suman a su deuda.</div>');
 function quincena(q){
   const items=[...S.servicios.map(s=>({...s,m:s.monto,t:'servicio'})),...S.prestamos.filter(p=>p.cuotasRestantes>0).map(p=>({...p,m:p.cuota,t:'prestamo'}))]
     .filter(x=>q===1?x.dia<=15:x.dia>15).sort((a,b)=>a.dia-b.dia);
@@ -295,17 +346,28 @@ V.prestamos=()=>{
    <div class="mu">Pendiente en cuotas: ${fmt(p.cuota*p.cuotasRestantes)}</div>
    <div class="acts">${activo?`<button class="btn sm" onclick="pagar('prestamo','${p.id}')">Marcar pagado</button>`:''}${p.pagos.length?`<button class="btn sm sec" onclick="deshacer('prestamo','${p.id}')">Deshacer</button>`:''}<button class="btn sm sec" onclick="editarPrestamo('${p.id}')">Editar</button><button class="btn sm sec" onclick="eliminar('prestamos','${p.id}')">Eliminar</button></div></div>`}).join('')}`;
 };
+function signoMov(m){
+  if(m.tipo==='ingreso')return['+','pos'];
+  if(m.tipo==='gasto')return['−','neg'];
+  if(m.tipo==='pagoTarjeta')return[cuentaFiltro===m.tarjeta?'+':'⇄','neu'];
+  if(m.hist)return[m.sentido==='entra'?'⇄ +':'⇄ −','neu'];
+  return['⇄','neu'];
+}
 V.movs=()=>{
-  const ms=S.movs.filter(m=>m.fecha.startsWith(mesFiltro)).sort((a,b)=>b.fecha.localeCompare(a.fecha));
-  const ing=ms.filter(m=>m.tipo==='ingreso').reduce((a,m)=>a+m.monto,0), gas=ms.filter(m=>m.tipo==='gasto').reduce((a,m)=>a+m.monto,0);
-  return`<div class="row" style="margin-bottom:12px"><input type="month" value="${mesFiltro}" onchange="mesFiltro=this.value||mesActual();render()" style="flex:1"><button class="btn" onclick="nuevoMov()">+ Nuevo</button></div>
-  <div class="card"><div class="row"><span class="mu">Ingresos</span><span class="amt pos">${fmt(ing)}</span></div><div class="row"><span class="mu">Gastos</span><span class="amt neg">${fmt(gas)}</span></div><div class="row" style="margin-top:6px;border-top:1px solid var(--line);padding-top:6px"><b>Neto</b><span class="amt ${ing-gas<0?'neg':'pos'}">${fmt(ing-gas)}</span></div></div>
-  <div class="card">${ms.length?ms.map(m=>{const s=m.tipo==='ingreso'?'+':m.tipo==='pagoTarjeta'?'⇄':'−';const cl=m.tipo==='ingreso'?'pos':m.tipo==='gasto'?'neg':'';
-    return`<div class="item" onclick="delMov('${m.id}')"><div><div class="n">${esc(m.nota||m.categoria)}</div><div class="mu">${fechaCorta(m.fecha)} · ${esc(m.categoria)} · ${esc(nombreCuenta(m.cuenta))}</div></div><span class="amt ${cl}">${s} ${fmt(m.monto)}</span></div>`}).join('')+'<div class="mu" style="text-align:center;margin-top:8px">Toca un movimiento para eliminarlo</div>':'<div class="empty">Sin movimientos este mes</div>'}</div>`;
+  const ms=S.movs.filter(m=>m.fecha.startsWith(mesFiltro)&&cuentaOk(m)).sort((a,b)=>b.fecha.localeCompare(a.fecha));
+  const ing=sumaIngresos(mesFiltro,true), g=gastosMes(mesFiltro,true), gas=sum(g);
+  const cats=Object.entries(g).sort((a,b)=>b[1]-a[1]);
+  const opts=[['todas','Todas las cuentas'],...opcionesCuenta()];
+  return`<div class="filters"><input type="month" value="${mesFiltro}" onchange="mesFiltro=this.value||mesActual();render()"><select onchange="cuentaFiltro=this.value;render()">${opts.map(([k,l])=>`<option value="${esc(k)}" ${k===cuentaFiltro?'selected':''}>${esc(l)}</option>`).join('')}</select><button class="btn" onclick="nuevoMov()">+</button></div>
+  <div class="card"><div class="mu" style="margin-bottom:6px;text-transform:capitalize">${nombreMes(mesFiltro)}</div><div class="row"><span class="mu">Ingresos</span><span class="amt pos">${fmt(ing)}</span></div><div class="row"><span class="mu">Gastos</span><span class="amt neg">${fmt(gas)}</span></div><div class="row" style="margin-top:6px;border-top:1px solid var(--line);padding-top:6px"><b>Neto</b><span class="amt ${ing-gas<0?'neg':'pos'}">${fmt(ing-gas)}</span></div><div class="mu" style="margin-top:6px">Las transferencias entre tus cuentas (⇄) no cuentan como ingreso ni gasto.</div></div>
+  ${cats.length?`<div class="card"><h2>Gastos por categoría</h2>${cats.map(([c,v])=>`<div style="margin:8px 0"><div class="row"><span>${esc(c)}</span><span class="amt">${fmt(v)} <span class="mu">${Math.round(v/gas*100)}%</span></span></div><div class="bar"><i style="width:${v/cats[0][1]*100}%;background:var(--ac)"></i></div></div>`).join('')}</div>`:''}
+  <div class="card">${ms.length?ms.map(m=>{const[s,cl]=signoMov(m);
+    const donde=m.tipo==='pagoTarjeta'?`${nombreCuenta(m.cuenta)} → ${nombreCuenta(m.tarjeta)}`:m.destino?`${nombreCuenta(m.cuenta)} → ${nombreCuenta(m.destino)}`:nombreCuenta(m.cuenta);
+    return`<div class="item" onclick="delMov('${m.id}')"><div><div class="n">${esc(m.nota||m.categoria)}</div><div class="mu">${fechaCorta(m.fecha)} · ${esc(m.categoria||'')} · ${esc(donde)}</div></div><span class="amt ${cl}">${s} ${fmt(m.monto)}</span></div>`}).join('')+'<div class="mu" style="text-align:center;margin-top:8px">Toca un movimiento para eliminarlo</div>':'<div class="empty">Sin movimientos este mes</div>'}</div>`;
 };
 V.presupuesto=()=>{
   const g=gastosMes(mesActual());const cats=[...new Set([...CAT_GASTO,...Object.keys(g)])];
-  const tp=Object.values(S.presupuesto).reduce((a,b)=>a+b,0), tg=Object.values(g).reduce((a,b)=>a+b,0);
+  const tp=sum(S.presupuesto), tg=sum(g);
   return`<div class="card"><div class="mu">Presupuesto mensual</div><div class="row"><div class="big">${fmt(tg)}</div><span class="mu">de ${fmt(tp)}</span></div>${tp?`<div class="bar"><i style="width:${Math.min(100,tg/tp*100)}%;background:${tg>tp?'var(--bad)':'var(--ok)'}"></i></div>`:''}</div>
   <button class="btn sec full" style="margin:0 0 12px" onclick="editarPresupuesto()">✏️ Editar límites</button>
   <div class="card">${cats.map(c=>{const lim=S.presupuesto[c]||0,u=g[c]||0,pc=lim?u/lim*100:0;if(!lim&&!u)return'';
@@ -315,12 +377,14 @@ V.presupuesto=()=>{
 function editarPresupuesto(){
   form('Límites mensuales por categoría',CAT_GASTO.map(c=>({name:c,label:c,type:'number',value:S.presupuesto[c]||0})),d=>{CAT_GASTO.forEach(c=>S.presupuesto[c]=d[c])});
 }
-V.datos=()=>`<div class="card"><h2>Respaldo</h2><div class="mu">Tus datos viven solo en este iPhone. Haz un respaldo cada semana y guárdalo en Archivos o iCloud Drive.</div>
+V.datos=()=>`<div class="card"><h2>Importar estados de cuenta</h2><div class="mu">Carga el archivo .json que te preparé con tus bancos. Agrega cuentas, tarjetas y movimientos <b>sin borrar</b> lo que ya tienes. Si lo importas dos veces, no se duplica.</div>
+  <label>Archivo de importación</label><input type="file" accept=".json,application/json" onchange="leerArchivo(this.files[0],importarEstado)"></div>
+  <div class="card"><h2>Respaldo</h2><div class="mu">Tus datos viven solo en este iPhone. Haz un respaldo cada semana y guárdalo en Archivos o iCloud Drive.</div>
   <button class="btn full" onclick="exportar()">⬇️ Exportar respaldo (JSON)</button>
   <button class="btn sec full" onclick="copiar()">📋 Copiar respaldo al portapapeles</button></div>
-  <div class="card"><h2>Restaurar</h2><input type="file" accept=".json,application/json" onchange="importarArchivo(this.files[0])">
+  <div class="card"><h2>Restaurar respaldo completo</h2><div class="mu">Reemplaza todos los datos por los del respaldo.</div><input type="file" accept=".json,application/json" onchange="leerArchivo(this.files[0],importarTexto)" style="margin-top:8px">
   <label>…o pega el texto del respaldo</label><textarea id="pegado"></textarea><button class="btn sec full" onclick="importarTexto($('#pegado').value)">Restaurar desde texto</button></div>
-  <div class="card"><div class="mu">${S.movs.length} movimientos · ${S.servicios.length} servicios · ${S.prestamos.length} préstamos · ${S.tarjetas.length} tarjetas</div>
+  <div class="card"><div class="mu">${S.movs.length} movimientos · ${S.cuentasInfo.length} cuentas · ${S.tarjetas.length} tarjetas · ${S.servicios.length} servicios · ${S.prestamos.length} préstamos</div>
   <button class="btn bad full" onclick="reiniciar()">Borrar todo y empezar de cero</button></div>`;
 async function exportar(){
   const txt=JSON.stringify(S,null,1), nombre=`finanzas-${iso(hoy())}.json`;
@@ -330,15 +394,30 @@ async function exportar(){
 async function copiar(){try{await navigator.clipboard.writeText(JSON.stringify(S));toast('📋 Copiado')}catch(e){toast('No se pudo copiar')}}
 function importarTexto(t){
   try{const d=JSON.parse(t);if(!d.cuentas||!Array.isArray(d.movs))throw 0;if(!confirm('Esto reemplaza todos tus datos actuales. ¿Continuar?'))return;
-    S=d;['tarjetas','servicios','prestamos'].forEach(k=>S[k]=S[k]||[]);S.presupuesto=S.presupuesto||{};save();render();toast('✅ Datos restaurados')}
+    S=d;migrar();save();render();toast('✅ Datos restaurados')}
   catch(e){alert('Archivo no válido. Usa un respaldo exportado desde esta app.')}
 }
-function importarArchivo(f){if(!f)return;const r=new FileReader();r.onload=()=>importarTexto(r.result);r.readAsText(f)}
+function importarEstado(t){
+  let d;try{d=JSON.parse(t)}catch(e){return alert('Archivo no válido.')}
+  if(d.tipo!=='importacion'){if(d.cuentas&&Array.isArray(d.movs))return importarTexto(t);return alert('Este archivo no es una importación de estados de cuenta.')}
+  let nc=0,nt=0,nm=0;
+  (d.cuentasInfo||[]).forEach(c=>{const ex=infoCuenta(c.id);if(ex)Object.assign(ex,c);else{S.cuentasInfo.push(c);nc++}S.cuentas[c.id]=Number(d.cuentas[c.id])||0});
+  // quitar la cuenta genérica "Tarjeta débito" si está vacía y sin uso
+  if((d.cuentasInfo||[]).some(c=>c.tipo==='debito')&&esCuenta('debito')&&!S.cuentas.debito&&!S.movs.some(m=>m.cuenta==='debito'||m.destino==='debito')){S.cuentasInfo=S.cuentasInfo.filter(c=>c.id!=='debito');delete S.cuentas.debito}
+  (d.tarjetas||[]).forEach(t=>{const ex=S.tarjetas.find(x=>x.id===t.id||(t.ult4&&x.ult4===t.ult4));if(ex){const id=ex.id;Object.assign(ex,t,{id});}else{S.tarjetas.push(t);nt++}});
+  const ids=new Set(S.movs.map(m=>m.id));
+  (d.movs||[]).forEach(m=>{if(!ids.has(m.id)){S.movs.push({...m,hist:true});nm++}});
+  (d.categoriasGasto||[]).forEach(c=>{if(!(c in S.presupuesto))S.presupuesto[c]=0});
+  S.movs.sort((a,b)=>b.fecha.localeCompare(a.fecha));
+  save();tab='inicio';render();
+  alert(`✅ Importación lista\n\n${nc} cuentas nuevas · ${nt} tarjetas nuevas · ${nm} movimientos nuevos.\n\nLos saldos son los del último estado de cuenta: toca cada cuenta en Inicio para ajustarla a tu saldo de hoy.`);
+}
+function leerArchivo(f,fn){if(!f)return;const r=new FileReader();r.onload=()=>fn(r.result);r.readAsText(f)}
 function reiniciar(){if(confirm('¿Borrar TODO? Exporta un respaldo antes.')&&confirm('Confirmar de nuevo: se borrarán todos los datos.')){S=estadoInicial();save();render()}}
 
 /* ---------- render ---------- */
 function render(){
-  $('#nav').innerHTML=TABS.map(([k,i,l])=>`<button class="${k===tab?'on':''}" onclick="ir('${k}')"><span>${i}</span>${l}</button>`).join('');
+  $('#nav').innerHTML=TABS.map(([k,i,l])=>`<button class="${k===tab?'on':''}" onclick="${k==='movs'?"cuentaFiltro='todas';":''}ir('${k}')"><span>${i}</span>${l}</button>`).join('');
   $('#titulo').textContent=TABS.find(t=>t[0]===tab)[2].replace('Movim.','Movimientos').replace('Presup.','Presupuesto');
   $('#app').innerHTML=V[tab]();
 }
